@@ -4,7 +4,7 @@
 
 The Streamlit version is ready in **`streamlit_app.py`**. Follow **[STREAMLIT_DEPLOY.md](STREAMLIT_DEPLOY.md)** to update your public GitHub repository and deploy it. Choose `streamlit_app.py` as the main file, and put the Gemini key in Community Cloud's private Secrets settings.
 
-Run locally with `python -m streamlit run streamlit_app.py`. Each visitor uploads `pcards.db` into their own browser session; the database is not bundled in the public repository. No password is required. The live link does not contain preloaded records, so the instructor needs their own copy of the database to upload. Results and temporary uploaded files are not shared between sessions by the app. Uploads are processed on Streamlit's server; the Clear uploaded database button deletes the session's temporary file.
+Run locally with `python -m streamlit run streamlit_app.py`. The app automatically uses your existing `database/pcards.db`. On Community Cloud, it loads `pcards.db.gz` from a separate private GitHub data repository using credentials in Streamlit Secrets. See **[PRELOAD_DATABASE.md](PRELOAD_DATABASE.md)** for the one-time setup. Visitors see both tabs immediately, select the calendar year at the top-right, and can search without a password or file upload. The source database is shared read-only; each visitor's filters and results stay in their own session. Password-free visitors can view and export matching records even though the underlying GitHub file is private.
 
 The older Flask version remains available in `app.py`. The sections below describe that version; deploy `streamlit_app.py` on Streamlit Community Cloud.
 

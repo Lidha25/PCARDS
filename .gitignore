@@ -12,3 +12,5 @@ __pycache__/
 *.zip
 .sites-runtime/
 .streamlit/secrets.toml
+*.db.gz
+private-data-upload/

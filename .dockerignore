@@ -7,3 +7,6 @@ database
 __pycache__
 tests
 *.zip
+*.db.gz
+private-data-upload
+.streamlit/secrets.toml

@@ -1,4 +1,4 @@
-"""One uploaded SQLite file per Streamlit session; never a shared data cache."""
+"""Validate and own a temporary SQLite file for read-only database queries."""
 from pathlib import Path
 import sqlite3
 import tempfile

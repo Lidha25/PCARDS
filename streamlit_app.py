@@ -8,7 +8,7 @@ import time
 import streamlit as st
 
 from app import CATEGORIES, FIELDS, gemini_plan, run_plan
-from session_database import SessionDatabase
+from hosted_database import DataSourceError, get_database
 
 
 st.set_page_config(page_title='OSU · P-card Audit', page_icon='🔎', layout='wide')
@@ -27,14 +27,6 @@ def clear_results():
         st.session_state.pop(key, None)
 
 
-def discard_upload():
-    database = st.session_state.pop('audit_database', None)
-    if database:
-        database.close()
-    st.session_state.pop('audit_year', None)
-    clear_results()
-
-
 def search(plan, target, year, page=1):
     st.session_state.pop(target + '_result', None)
     st.session_state.pop(target + '_csv', None)
@@ -45,7 +37,7 @@ def search(plan, target, year, page=1):
     except ValueError as error:
         st.error(str(error))
     except sqlite3.Error:
-        st.error('The database could not be queried. Try a narrower search or upload a valid database again.')
+        st.error('The database could not be queried. Try a narrower search or contact the website owner.')
 
 
 def make_csv(rows):
@@ -103,40 +95,31 @@ def show_results(target):
                            file_name=f'osu-{target}-{result["year"]}.csv', mime='text/csv', key=target+'_download')
 
 
-st.caption('OKLAHOMA STATE UNIVERSITY · PURCHASING CARD REVIEW')
-st.title('P-card audit workspace')
-st.write('Search potential control deviations and inspect the transaction evidence.')
+title_column, year_column = st.columns([4, 1])
+with title_column:
+    st.caption('OKLAHOMA STATE UNIVERSITY · PURCHASING CARD REVIEW')
+    st.title('P-card audit workspace')
+    st.write('Search potential control deviations and inspect the transaction evidence.')
 
-with st.sidebar:
-    st.header('Your transaction database')
-    st.caption('Upload pcards.db for this browser session. No website password is required.')
-    generation = st.session_state.get('upload_generation', 0)
-    uploaded = st.file_uploader('Select pcards.db', type=['db', 'sqlite', 'sqlite3'],
-                                key=f'database_upload_{generation}', on_change=discard_upload)
-    st.caption('Uploads are processed on the hosting server. This app does not add them to GitHub, share them with other visitor sessions, or send transaction rows to Gemini. Refreshing the page may require another upload.')
-    if uploaded is not None and 'audit_database' not in st.session_state:
-        try:
-            with st.spinner('Checking database and available years…'):
-                st.session_state.audit_database = SessionDatabase(uploaded.getbuffer())
-        except ValueError as error:
-            st.error(str(error))
-        except (sqlite3.Error, OSError):
-            st.error('This file could not be opened as the expected P-card database.')
-    if 'audit_database' in st.session_state:
-        st.success('Database ready for this session')
-        if st.button('Clear uploaded database'):
-            discard_upload()
-            st.session_state.upload_generation = generation + 1
-            st.rerun()
-        years = st.session_state.audit_database.years
-        year = st.selectbox('Calendar year', years, index=years.index(2014) if 2014 in years else 0,
-                            key='audit_year', on_change=clear_results)
-        st.caption('Calendar years are derived from transaction dates. Only OSU transactions are searched.')
-
-if 'audit_database' not in st.session_state:
-    st.info('Start by uploading pcards.db using the sidebar. Keep the database out of your public GitHub repository.')
-    st.write('After upload, you can ask questions about the database or use separate description and vendor searches to examine possible prohibited purchases.')
+try:
+    with st.spinner('Connecting to the audit database…'):
+        database = get_database()
+except DataSourceError as error:
+    st.error(str(error))
+    if st.button('Retry connection'):
+        st.rerun()
     st.stop()
+
+if st.session_state.get('audit_database') is not database:
+    clear_results()
+    st.session_state.pop('audit_year', None)
+    st.session_state.audit_database = database
+
+with year_column:
+    years = database.years
+    year = st.selectbox('Calendar year', years, index=years.index(2014) if 2014 in years else 0,
+                        key='audit_year', on_change=clear_results)
+    st.caption('Based on transaction date')
 
 questions, dashboard = st.tabs(['Ask the database', 'Prohibited purchases dashboard'])
 
@@ -170,7 +153,7 @@ with questions:
 with dashboard:
     st.subheader('Prohibited purchases')
     with st.expander('How to use this dashboard', expanded=True):
-        st.write('1. Select a calendar year in the sidebar.\n2. Choose a policy category to see suggested keywords.\n3. Enter a term in Description search or Vendor search and run that search. Each search examines only its labeled field.\n4. Review the transaction details, download results and check supporting evidence.')
+        st.write('1. Select a calendar year at the top-right.\n2. Choose a policy category to see suggested keywords.\n3. Enter a term in Description search or Vendor search and run that search. Each search examines only its labeled field.\n4. Review the transaction details, download results and check supporting evidence.')
         st.caption('Searches match literal text anywhere in the field, regardless of capitalization. Keyword matches may be legitimate, and nonmatches may still require review. Suggestions are not exhaustive.')
     category = st.selectbox('Prohibited-purchase category', list(CATEGORIES))
     st.write('Suggested terms: ' + ' · '.join(CATEGORIES[category]))
