@@ -35,7 +35,7 @@ class LocalDatabase:
 
 
 def load_database():
-    repo = setting('GITHUB_DATA_REPO')
+    repo = setting('GITHUB_DATA_REPO').strip().removeprefix('https://github.com/').rstrip('/')
     if not repo:
         path = Path(setting('DATABASE_PATH', 'database/pcards.db'))
         if not path.is_absolute():
@@ -56,9 +56,9 @@ def load_database():
             if db is not None:
                 db.close()
 
-    token = setting('GITHUB_DATA_TOKEN')
-    filename = setting('GITHUB_DATA_FILE', 'pcards.db.gz')
-    branch = setting('GITHUB_DATA_BRANCH', 'main')
+    token = setting('GITHUB_DATA_TOKEN').strip()
+    filename = setting('GITHUB_DATA_FILE', 'pcards.db.gz').strip().lstrip('/')
+    branch = setting('GITHUB_DATA_BRANCH', 'main').strip()
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo) or not token:
         raise DataSourceError('The private database connection needs to be configured by the website owner.')
     if not filename.endswith('.db.gz') or '..' in filename.split('/'):
@@ -70,7 +70,13 @@ def load_database():
             'Accept': 'application/vnd.github.raw+json',
             'X-GitHub-Api-Version': '2022-11-28'}, timeout=(15, 60), stream=True) as response:
             if response.status_code != 200:
-                raise DataSourceError('The server could not retrieve the audit database. The website owner should check the private repository and access token.')
+                messages = {
+                    401: 'Database connection: GitHub rejected the access token. The website owner must check or renew GITHUB_DATA_TOKEN in Streamlit Secrets.',
+                    403: 'Database connection: GitHub denied access or limited requests. Check that the token has Contents read access to the data repository and is not awaiting approval.',
+                    404: 'Database connection: the file could not be found or accessed. Check that pcards.db.gz is uploaded to the private data repository, the branch and file settings match, and the token can read that repository.',
+                    429: 'Database connection: GitHub is temporarily limiting requests. Please try again later.',
+                }
+                raise DataSourceError(messages.get(response.status_code, 'The database service is temporarily unavailable. Please try again later.'))
             compressed = io.BytesIO()
             for chunk in response.iter_content(1024 * 1024):
                 if compressed.tell() + len(chunk) > 30 * 1024 * 1024:

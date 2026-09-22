@@ -13,6 +13,38 @@ from hosted_database import DataSourceError, get_database
 
 st.set_page_config(page_title='OSU · P-card Audit', page_icon='🔎', layout='wide')
 
+# Keep the audit surface consistent even if the host's theme file was omitted.
+st.markdown('''<style>
+.stApp {background:#f4f5f1;color:#172a29;color-scheme:light;}
+[data-testid="stHeader"] {background:#f4f5f1;}
+[data-testid="stMainBlockContainer"] {max-width:1400px;padding-top:2rem;}
+.audit-header {background:#173b35;color:white;padding:22px 28px;border-radius:8px;display:flex;align-items:center;gap:14px;margin-bottom:24px;}
+.audit-logo {background:#f18b55;color:#173b35;font:bold 30px Georgia;padding:0 14px;border-radius:5px;}
+.audit-brand {font-weight:700;font-size:20px;}.audit-brand small {display:block;color:#cfddd5;font-size:11px;letter-spacing:.12em;}
+.audit-eyebrow {color:#b64818;font-size:12px;font-weight:700;letter-spacing:.12em;margin-bottom:8px;}
+.audit-title {font:normal 44px/1.15 Georgia,serif;color:#172a29;margin:8px 0 16px;}
+.audit-copy {color:#60706c;font-size:16px;margin-bottom:16px;}
+.stApp [data-testid="stMarkdownContainer"], .stApp label, .stApp h1, .stApp h2, .stApp h3 {color:#172a29;}
+.stApp [data-testid="stCaptionContainer"] {color:#60706c;}
+.stApp [data-testid="stForm"] {background:white;border:1px solid #dce1da;border-radius:10px;padding:26px;}
+.stApp [data-testid="stMetric"] {background:white;border:1px solid #dce1da;border-radius:8px;padding:18px;}
+.stApp [data-testid="stMetricValue"], .stApp [data-testid="stMetricLabel"] {color:#172a29;}
+.stApp input, .stApp textarea {background:white!important;color:#172a29!important;caret-color:#172a29;}
+.stApp [data-baseweb="select"]>div {background:white;color:#172a29;border-color:#aebbb3;}
+.stApp [data-baseweb="tab-list"] {gap:24px;background:transparent;border-bottom:1px solid #bac6bd;}
+.stApp [data-baseweb="tab"] {color:#60706c;padding:16px 4px;font-size:16px;}
+.stApp [data-baseweb="tab"][aria-selected="true"] {color:#172a29;font-weight:650;}
+.stApp [data-baseweb="tab-highlight"] {background:#b64818;}
+.stApp button[kind="primaryFormSubmit"], .stApp button[kind="primary"] {background:#b64818;color:white;border-color:#b64818;}
+.stApp button[kind="primaryFormSubmit"] p, .stApp button[kind="primary"] p {color:white;}
+.stApp button[kind="secondary"], .stApp button[kind="secondaryFormSubmit"] {background:white;color:#172a29;border-color:#acb9af;}
+.stApp [data-testid="stExpander"] {background:#eaf0e6;border-color:#dce1da;border-radius:8px;}
+.stApp [data-testid="stExpander"] details summary {color:#172a29;}
+.stApp [data-testid="stAlert"] {color:#172a29;}
+.audit-footer {border-top:1px solid #dce1da;color:#60706c;font-size:13px;padding-top:20px;margin-top:30px;}
+@media(max-width:600px){.audit-title{font-size:34px}.audit-header{padding:18px}.stApp [data-baseweb="tab-list"]{gap:12px}.stApp [data-baseweb="tab"]{font-size:14px}}
+</style>''', unsafe_allow_html=True)
+
 # Only server-side settings are copied. Never show their values in the interface.
 try:
     for key in ('GEMINI_API_KEY', 'GEMINI_MODEL'):
@@ -30,6 +62,9 @@ def clear_results():
 def search(plan, target, year, page=1):
     st.session_state.pop(target + '_result', None)
     st.session_state.pop(target + '_csv', None)
+    if not st.session_state.get('audit_database'):
+        st.error('Searches will be available once the database connection is restored.')
+        return
     try:
         with st.spinner('Searching OSU transactions…'):
             result = run_plan(plan, year, page=page, database_path=st.session_state.audit_database.path)
@@ -95,20 +130,18 @@ def show_results(target):
                            file_name=f'osu-{target}-{result["year"]}.csv', mime='text/csv', key=target+'_download')
 
 
+st.markdown('<div class="audit-header"><span class="audit-logo">P</span><div class="audit-brand">P-card audit<small>OKLAHOMA STATE UNIVERSITY</small></div></div>', unsafe_allow_html=True)
 title_column, year_column = st.columns([4, 1])
 with title_column:
-    st.caption('OKLAHOMA STATE UNIVERSITY · PURCHASING CARD REVIEW')
-    st.title('P-card audit workspace')
-    st.write('Search potential control deviations and inspect the transaction evidence.')
+    st.markdown('<div class="audit-eyebrow">PURCHASING CARD REVIEW</div><h1 class="audit-title">Follow the transaction.</h1><p class="audit-copy">Search potential control deviations. Examine the evidence.</p>', unsafe_allow_html=True)
 
+database = None
+connection_error = None
 try:
     with st.spinner('Connecting to the audit database…'):
         database = get_database()
 except DataSourceError as error:
-    st.error(str(error))
-    if st.button('Retry connection'):
-        st.rerun()
-    st.stop()
+    connection_error = str(error)
 
 if st.session_state.get('audit_database') is not database:
     clear_results()
@@ -116,12 +149,20 @@ if st.session_state.get('audit_database') is not database:
     st.session_state.audit_database = database
 
 with year_column:
-    years = database.years
-    year = st.selectbox('Calendar year', years, index=years.index(2014) if 2014 in years else 0,
-                        key='audit_year', on_change=clear_results)
+    years = database.years if database else []
+    year = st.selectbox('Calendar year', years, index=years.index(2014) if 2014 in years else 0 if years else None,
+                        key='audit_year', on_change=clear_results, disabled=database is None,
+                        placeholder='Database unavailable')
     st.caption('Based on transaction date')
 
-questions, dashboard = st.tabs(['Ask the database', 'Prohibited purchases dashboard'])
+if connection_error:
+    st.warning('The database is currently unavailable. Both audit tools are shown below; searches will become available when the connection is restored.')
+    with st.expander('Connection details'):
+        st.error(connection_error)
+        if st.button('Retry connection'):
+            st.rerun()
+
+dashboard, questions = st.tabs(['01 · Prohibited purchases', '02 · Ask the database'])
 
 with questions:
     st.subheader('Ask a question. Inspect the evidence.')
@@ -129,7 +170,7 @@ with questions:
     st.caption('Examples: “Show transactions with alcohol in the description” · “Show total spending by vendor” · “Show transactions with amounts of at least $5,000”')
     with st.form('question_form'):
         question = st.text_area('Your question', max_chars=1000, placeholder='Show transactions with alcohol in the description')
-        asked = st.form_submit_button('Ask the database', type='primary')
+        asked = st.form_submit_button('Ask the database', type='primary', disabled=database is None)
     st.caption('Your question is sent to Gemini; transaction rows stay on the server. Do not put confidential details in your question. Review the interpreted filters. Complex tests such as duplicates and split purchases are not supported here.')
     if asked:
         st.session_state.pop('questions_result', None)
@@ -151,23 +192,28 @@ with questions:
     show_results('questions')
 
 with dashboard:
-    st.subheader('Prohibited purchases')
-    with st.expander('How to use this dashboard', expanded=True):
+    with st.expander('How to use this dashboard', expanded=False):
         st.write('1. Select a calendar year at the top-right.\n2. Choose a policy category to see suggested keywords.\n3. Enter a term in Description search or Vendor search and run that search. Each search examines only its labeled field.\n4. Review the transaction details, download results and check supporting evidence.')
         st.caption('Searches match literal text anywhere in the field, regardless of capitalization. Keyword matches may be legitimate, and nonmatches may still require review. Suggestions are not exhaustive.')
-    category = st.selectbox('Prohibited-purchase category', list(CATEGORIES))
-    st.write('Suggested terms: ' + ' · '.join(CATEGORIES[category]))
-    description, vendor = st.columns(2)
-    with description:
+    policy_column, search_column = st.columns([1, 2.5])
+    with policy_column:
+        st.markdown('<div class="audit-eyebrow">POLICY REFERENCE</div>', unsafe_allow_html=True)
+        st.subheader('Prohibited purchases')
+        category = st.selectbox('Prohibited-purchase category', list(CATEGORIES))
+        st.caption('Suggested search terms')
+        st.write(' · '.join(CATEGORIES[category]))
+        st.caption('Enter a suggested term in either search field, then choose the search to run.')
+    with search_column:
         with st.form('description_form'):
-            st.markdown('#### Description search')
+            st.markdown('<div class="audit-eyebrow">DESCRIPTION SEARCH · 01</div>', unsafe_allow_html=True)
+            st.subheader('What was purchased?')
             desc = st.text_input('Keyword in transaction description', max_chars=150, placeholder='e.g. alcohol, gift card, membership')
-            desc_go = st.form_submit_button('Search description', type='primary')
-    with vendor:
+            desc_go = st.form_submit_button('Search description', type='primary', disabled=database is None)
         with st.form('vendor_form'):
-            st.markdown('#### Vendor search')
+            st.markdown('<div class="audit-eyebrow">VENDOR SEARCH · 02</div>', unsafe_allow_html=True)
+            st.subheader('Who was paid?')
             vend = st.text_input('Keyword in vendor name', max_chars=150, placeholder='e.g. USPS, post office, liquor')
-            vend_go = st.form_submit_button('Search vendor', type='primary')
+            vend_go = st.form_submit_button('Search vendor', type='primary', disabled=database is None)
     if desc_go or vend_go:
         field, keyword = ('Description', desc.strip()) if desc_go else ('Vendor', vend.strip())
         if keyword:
@@ -178,4 +224,4 @@ with dashboard:
             st.error('Enter a keyword first.')
     show_results('dashboard')
 
-st.caption('Evidence first. Professional judgment always.')
+st.markdown('<div class="audit-footer">OSU P-card audit workspace · Evidence first. Professional judgment always.</div>', unsafe_allow_html=True)
