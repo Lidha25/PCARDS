@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+*.db
+*.db-*
+*.sqlite*
+database/
+*.docx
+__pycache__/
+.venv/
+.pytest_cache/
+*.zip
+.sites-runtime/
+.streamlit/secrets.toml
