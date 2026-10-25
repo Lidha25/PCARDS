@@ -102,6 +102,7 @@ def show_results(target):
     st.info('Potential exceptions only. Review receipts, business purpose and approvals before reporting a finding. Net amounts include returns and credits.')
     if result['rows']:
         st.dataframe(result['rows'], hide_index=True, width='stretch',
+                     column_order=None if result['plan']['operation'] == 'group' else ['ID', 'TransactionDate', 'Vendor', 'Description', 'Amount', 'FullName', 'PostedDate', 'MCC', 'CardholderLastName', 'CardholderFirstInitial', 'AgencyNumber', 'AgencyName', 'Year', 'Month'],
                      column_config={'Amount': st.column_config.NumberColumn('Amount · USD', format='$%.2f')})
         if result['plan']['operation'] == 'group':
             st.caption('First eight groups on this page, sorted by net amount.')
@@ -192,8 +193,9 @@ with questions:
     show_results('questions')
 
 with dashboard:
-    with st.expander('How to use this dashboard', expanded=False):
-        st.write('1. Select a calendar year at the top-right.\n2. Choose a policy category to see suggested keywords.\n3. Enter a term in Description search or Vendor search and run that search. Each search examines only its labeled field.\n4. Review the transaction details, download results and check supporting evidence.')
+    dashboard_status = st.empty()
+    with st.expander('How to use this dashboard', expanded=True):
+        st.write('1. Select a calendar year at the top-right.\n2. Choose a policy category to see suggested keywords.\n3. Enter a term in Description search or Vendor search and run that search. Each search examines only its labeled field.\n4. Scroll below the two search forms to Matching transactions. Review the details, download results and check supporting evidence.')
         st.caption('Searches match literal text anywhere in the field, regardless of capitalization. Keyword matches may be legitimate, and nonmatches may still require review. Suggestions are not exhaustive.')
     policy_column, search_column = st.columns([1, 2.5])
     with policy_column:
@@ -202,17 +204,17 @@ with dashboard:
         category = st.selectbox('Prohibited-purchase category', list(CATEGORIES))
         st.caption('Suggested search terms')
         st.write(' · '.join(CATEGORIES[category]))
-        st.caption('Enter a suggested term in either search field, then choose the search to run.')
+        st.caption('This category is a reference, not a filter. Enter one keyword in a search field and click its search button. Use description terms for what was purchased, and vendor names for who was paid.')
     with search_column:
         with st.form('description_form'):
             st.markdown('<div class="audit-eyebrow">DESCRIPTION SEARCH · 01</div>', unsafe_allow_html=True)
             st.subheader('What was purchased?')
-            desc = st.text_input('Keyword in transaction description', max_chars=150, placeholder='e.g. alcohol, gift card, membership')
+            desc = st.text_input('Keyword in transaction description', max_chars=150, placeholder='Enter one keyword, for example alcohol')
             desc_go = st.form_submit_button('Search description', type='primary', disabled=database is None)
         with st.form('vendor_form'):
             st.markdown('<div class="audit-eyebrow">VENDOR SEARCH · 02</div>', unsafe_allow_html=True)
             st.subheader('Who was paid?')
-            vend = st.text_input('Keyword in vendor name', max_chars=150, placeholder='e.g. USPS, post office, liquor')
+            vend = st.text_input('Keyword in vendor name', max_chars=150, placeholder='Enter one vendor name, for example USPS')
             vend_go = st.form_submit_button('Search vendor', type='primary', disabled=database is None)
     if desc_go or vend_go:
         field, keyword = ('Description', desc.strip()) if desc_go else ('Vendor', vend.strip())
@@ -222,6 +224,17 @@ with dashboard:
             st.session_state.pop('dashboard_result', None)
             st.session_state.pop('dashboard_csv', None)
             st.error('Enter a keyword first.')
+    dashboard_result = st.session_state.get('dashboard_result')
+    if dashboard_result:
+        applied = dashboard_result['plan']['filters'][0]
+        count = dashboard_result['stats']['count']
+        message = f'{count:,} matching transactions | {dashboard_result["year"]} | {applied["field"]} contains "{applied["keyword"]}". Results are below the two search forms.'
+        if count:
+            dashboard_status.success(message)
+        else:
+            dashboard_status.warning(message + ' Try one shorter keyword or another year. Zero matches does not establish that purchases complied with policy.')
+    else:
+        dashboard_status.info('Start here: select a year, enter one keyword, then click Search description or Search vendor. Selecting a policy category alone does not run a search.')
     show_results('dashboard')
 
 st.markdown('<div class="audit-footer">OSU P-card audit workspace · Evidence first. Professional judgment always.</div>', unsafe_allow_html=True)
